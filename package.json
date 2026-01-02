@@ -1,8 +1,8 @@
 {
-  "name": "restlens-ide",
-  "version": "1.0.0",
+  "name": "restlens-client",
+  "version": "1.0.1",
   "private": true,
-  "description": "REST Lens IDE integration - VS Code extension for OpenAPI specification evaluation",
+  "description": "REST Lens Client - VS Code extension for OpenAPI specification evaluation",
   "repository": {
     "type": "git",
     "url": "https://github.com/Edthing/restlens-ide"
