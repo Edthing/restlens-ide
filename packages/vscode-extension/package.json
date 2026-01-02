@@ -1,0 +1,121 @@
+{
+  "name": "restlens-ide",
+  "displayName": "REST Lens",
+  "description": "Real-time OpenAPI specification evaluation powered by REST Lens",
+  "version": "0.1.0",
+  "publisher": "restlens",
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/restlens/restlens-ide"
+  },
+  "icon": "images/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "openapi",
+    "swagger",
+    "api",
+    "rest",
+    "linter",
+    "validation"
+  ],
+  "activationEvents": [
+    "onLanguage:yaml",
+    "onLanguage:json",
+    "workspaceContains:**/openapi.yaml",
+    "workspaceContains:**/openapi.json",
+    "workspaceContains:**/swagger.yaml",
+    "workspaceContains:**/swagger.json"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "restlens.signIn",
+        "title": "REST Lens: Sign In"
+      },
+      {
+        "command": "restlens.signOut",
+        "title": "REST Lens: Sign Out"
+      },
+      {
+        "command": "restlens.selectProject",
+        "title": "REST Lens: Select Project"
+      },
+      {
+        "command": "restlens.evaluate",
+        "title": "REST Lens: Evaluate Specification"
+      },
+      {
+        "command": "restlens.clearCache",
+        "title": "REST Lens: Clear Cache"
+      }
+    ],
+    "configuration": {
+      "title": "REST Lens",
+      "properties": {
+        "restlens.organization": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "REST Lens organization slug"
+        },
+        "restlens.project": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "REST Lens project name"
+        },
+        "restlens.apiUrl": {
+          "type": "string",
+          "default": "https://restlens.com",
+          "description": "REST Lens API URL (fallback if not stored with auth)"
+        },
+        "restlens.evaluateOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Evaluate OpenAPI specs when saving"
+        },
+        "restlens.evaluateOnType": {
+          "type": "boolean",
+          "default": false,
+          "description": "Evaluate OpenAPI specs while typing (with debounce)"
+        },
+        "restlens.debounceMs": {
+          "type": "number",
+          "default": 1000,
+          "description": "Debounce delay in milliseconds for evaluate-on-type"
+        },
+        "restlens.includeInfoSeverity": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include info-level violations in diagnostics"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "tsc && npm run copy-server",
+    "copy-server": "rm -rf ./dist/server && cp -r ../lsp-server/dist ./dist/server",
+    "watch": "tsc -w",
+    "package": "vsce package",
+    "clean": "rm -rf dist out"
+  },
+  "dependencies": {
+    "@restlens-ide/shared": "*",
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3",
+    "@vscode/vsce": "^2.22.0"
+  }
+}

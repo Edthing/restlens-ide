@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+out/
+*.vsix
+
+# TypeScript
+*.tsbuildinfo
+
+# Testing
+coverage/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+.vscode/
+fixtures/

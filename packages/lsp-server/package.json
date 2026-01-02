@@ -1,0 +1,28 @@
+{
+  "name": "@restlens-ide/lsp-server",
+  "version": "0.1.0",
+  "description": "REST Lens Language Server Protocol implementation",
+  "license": "GPL-3.0",
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@restlens-ide/shared": "*",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11",
+    "vscode-uri": "^3.0.8",
+    "yaml": "^2.3.4",
+    "lru-cache": "^10.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3"
+  }
+}
