@@ -216,4 +216,63 @@ export class RestLensClient {
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
+
+  /**
+   * Add a global ignore (ignores all rules for this violation key).
+   */
+  async addGlobalIgnore(violationKey: ViolationKey): Promise<{ id: string }> {
+    if (!this.orgSlug || !this.projectSlug) {
+      throw new RestLensAPIError(400, "Organization and project must be configured", "missing_config");
+    }
+
+    const url = `${this.baseUrl}/api/projects/${encodeURIComponent(this.orgSlug)}/${encodeURIComponent(this.projectSlug)}/ignores`;
+
+    const response = await this.fetchWithRetry(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.accessToken}`,
+      },
+      body: JSON.stringify({ violationKey }),
+    });
+
+    if (!response.ok) {
+      await this.handleErrorResponse(response);
+    }
+
+    return response.json() as Promise<{ id: string }>;
+  }
+
+  /**
+   * Add a rule-specific ignore.
+   */
+  async addRuleIgnore(ruleId: number, violationKey: ViolationKey): Promise<{ id: string }> {
+    if (!this.orgSlug || !this.projectSlug) {
+      throw new RestLensAPIError(400, "Organization and project must be configured", "missing_config");
+    }
+
+    const url = `${this.baseUrl}/api/projects/${encodeURIComponent(this.orgSlug)}/${encodeURIComponent(this.projectSlug)}/rules/${ruleId}/ignores`;
+
+    const response = await this.fetchWithRetry(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.accessToken}`,
+      },
+      body: JSON.stringify({ violationKey }),
+    });
+
+    if (!response.ok) {
+      await this.handleErrorResponse(response);
+    }
+
+    return response.json() as Promise<{ id: string }>;
+  }
+}
+
+export interface ViolationKey {
+  path?: string;
+  operation_id?: string;
+  http_code?: string;
+  schema_path?: string;
 }

@@ -13,13 +13,71 @@ import {
   TextDocumentSyncKind,
   DiagnosticSeverity,
   Diagnostic,
+  CodeAction,
+  CodeActionKind,
+  CodeActionParams,
+  Command,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 
-import { RestLensClient } from "./api-client";
+import { RestLensClient, ViolationKey } from "./api-client";
 import { violationsToDiagnostics, isOpenAPIDocument, parseOpenAPISpec } from "./diagnostics";
 import { DiagnosticsCache } from "./cache";
-import type { RestLensConfig } from "@restlens-ide/shared";
+import type { RestLensConfig, ViolationKV } from "@restlens-ide/shared";
+
+// Store violation data for code actions
+interface ViolationData {
+  ruleId: number;
+  ruleSlug: string;
+  violationKey: ViolationKey;
+  message: string;
+}
+
+// Map from diagnostic key (uri + range + message) to violation data
+const violationDataMap = new Map<string, ViolationData>();
+
+function getDiagnosticKey(uri: string, diagnostic: Diagnostic): string {
+  return `${uri}:${diagnostic.range.start.line}:${diagnostic.range.start.character}:${diagnostic.message}`;
+}
+
+function storeViolationData(uri: string, violations: ViolationKV[], diagnostics: Diagnostic[]): void {
+  // Clear old data for this URI
+  for (const key of violationDataMap.keys()) {
+    if (key.startsWith(uri)) {
+      violationDataMap.delete(key);
+    }
+  }
+
+  // Map diagnostics to their violation data
+  // Diagnostics are created in the same order as violations
+  let diagIndex = 0;
+  for (const vkv of violations) {
+    const violationKey: ViolationKey = {
+      path: vkv.key.path,
+      operation_id: vkv.key.operation_id,
+      http_code: vkv.key.http_code,
+      schema_path: vkv.key.schema_path,
+    };
+
+    for (const v of vkv.value) {
+      if (diagIndex >= diagnostics.length) break;
+
+      const diagnostic = diagnostics[diagIndex];
+      // Skip if this diagnostic doesn't match (might be filtered due to severity)
+      if (diagnostic.message !== v.message) continue;
+
+      const key = getDiagnosticKey(uri, diagnostic);
+      violationDataMap.set(key, {
+        ruleId: v.rule_id || 0,
+        ruleSlug: v.rule_slug || `rule-${v.rule_id}`,
+        violationKey,
+        message: v.message,
+      });
+
+      diagIndex++;
+    }
+  }
+}
 
 // =============================================================================
 // Server State
@@ -66,6 +124,14 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       // We use push diagnostics (sendDiagnostics), not pull
       // Hover for rule documentation (future)
       hoverProvider: true,
+      // Code actions for quick fixes (ignore rule/location)
+      codeActionProvider: {
+        codeActionKinds: [CodeActionKind.QuickFix],
+      },
+      // Execute command for applying ignores
+      executeCommandProvider: {
+        commands: ["restlens.ignoreRule", "restlens.ignoreGlobal"],
+      },
     },
   };
 });
@@ -157,30 +223,12 @@ async function validateDocument(document: TextDocument): Promise<void> {
     // Parse the spec
     const spec = parseOpenAPISpec(content);
     if (!spec) {
-      connection.sendDiagnostics({
-        uri,
-        diagnostics: [{
-          range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
-          severity: DiagnosticSeverity.Error,
-          message: "Invalid OpenAPI specification format",
-          source: "REST Lens",
-        }],
-      });
+      // Not a valid OpenAPI spec - silently clear diagnostics
+      connection.sendDiagnostics({ uri, diagnostics: [] });
       return;
     }
 
-    // Show "evaluating" state while waiting
-    connection.sendDiagnostics({
-      uri,
-      diagnostics: [{
-        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
-        severity: DiagnosticSeverity.Information,
-        message: "Evaluating specification...",
-        source: "REST Lens",
-      }],
-    });
-
-    // Notify extension that evaluation started
+    // Notify extension that evaluation started (keep existing diagnostics visible)
     connection.sendNotification("restlens/evaluationStarted", { uri });
 
     // Upload and evaluate
@@ -215,6 +263,9 @@ async function validateDocument(document: TextDocument): Promise<void> {
       document,
       config.includeInfoSeverity ?? false
     );
+
+    // Store violation data for code actions
+    storeViolationData(uri, violationsList, diagnostics);
 
     // Cache and send
     cache.set(content, diagnostics);
@@ -301,6 +352,89 @@ connection.onHover((params) => {
 connection.onRequest("textDocument/diagnostic", (params) => {
   connection.console.log(`Pull diagnostic request for: ${params?.textDocument?.uri}`);
   return { kind: "full", items: [] };
+});
+
+// =============================================================================
+// Code Actions (Quick Fixes)
+// =============================================================================
+
+connection.onCodeAction((params: CodeActionParams): CodeAction[] => {
+  const actions: CodeAction[] = [];
+  const uri = params.textDocument.uri;
+
+  // Only provide actions for REST Lens diagnostics
+  for (const diagnostic of params.context.diagnostics) {
+    if (diagnostic.source !== "REST Lens") continue;
+
+    const key = getDiagnosticKey(uri, diagnostic);
+    const violationData = violationDataMap.get(key);
+
+    if (!violationData) continue;
+
+    // Action 1: Ignore this rule for this location
+    actions.push({
+      title: `Ignore "${violationData.ruleSlug}" for this location`,
+      kind: CodeActionKind.QuickFix,
+      diagnostics: [diagnostic],
+      command: {
+        title: "Ignore Rule",
+        command: "restlens.ignoreRule",
+        arguments: [violationData.ruleId, violationData.violationKey, uri],
+      },
+    });
+
+    // Action 2: Ignore all rules for this location
+    actions.push({
+      title: `Ignore all rules for this location`,
+      kind: CodeActionKind.QuickFix,
+      diagnostics: [diagnostic],
+      command: {
+        title: "Ignore All",
+        command: "restlens.ignoreGlobal",
+        arguments: [violationData.violationKey, uri],
+      },
+    });
+  }
+
+  return actions;
+});
+
+// =============================================================================
+// Execute Commands (Apply Ignores)
+// =============================================================================
+
+connection.onExecuteCommand(async (params) => {
+  if (!apiClient) {
+    connection.window.showErrorMessage("REST Lens: Not authenticated");
+    return;
+  }
+
+  try {
+    if (params.command === "restlens.ignoreRule") {
+      const [ruleId, violationKey, uri] = params.arguments as [number, ViolationKey, string];
+      await apiClient.addRuleIgnore(ruleId, violationKey);
+      connection.window.showInformationMessage(`REST Lens: Rule ignored for this location`);
+      // Re-validate to update diagnostics
+      const document = documents.get(uri);
+      if (document) {
+        cache.clear(); // Clear cache to force re-fetch
+        validateDocument(document);
+      }
+    } else if (params.command === "restlens.ignoreGlobal") {
+      const [violationKey, uri] = params.arguments as [ViolationKey, string];
+      await apiClient.addGlobalIgnore(violationKey);
+      connection.window.showInformationMessage(`REST Lens: All rules ignored for this location`);
+      // Re-validate to update diagnostics
+      const document = documents.get(uri);
+      if (document) {
+        cache.clear(); // Clear cache to force re-fetch
+        validateDocument(document);
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    connection.window.showErrorMessage(`REST Lens: ${message}`);
+  }
 });
 
 // =============================================================================

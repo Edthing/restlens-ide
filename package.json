@@ -5,7 +5,7 @@
   "description": "REST Lens IDE integration - VS Code extension for OpenAPI specification evaluation",
   "repository": {
     "type": "git",
-    "url": "https://github.com/restlens/restlens-ide"
+    "url": "https://github.com/Edthing/restlens-ide"
   },
   "license": "GPL-3.0",
   "author": "REST Lens Team",

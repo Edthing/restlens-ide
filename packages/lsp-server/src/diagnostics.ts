@@ -15,6 +15,7 @@ import type { ViolationKV, ViolationKeyType, Severity } from "@restlens-ide/shar
 
 /**
  * Check if a document appears to be an OpenAPI specification.
+ * Returns true only for valid OpenAPI 3.x documents.
  */
 export function isOpenAPIDocument(document: TextDocument): boolean {
   const text = document.getText();
@@ -29,21 +30,39 @@ export function isOpenAPIDocument(document: TextDocument): boolean {
     }
   }
 
-  // Check for OpenAPI identifier
-  return text.includes("openapi:") || text.includes('"openapi"');
+  // Check for OpenAPI 3.x identifier (more strict check)
+  // Look for openapi: "3.x.x" or "openapi": "3.x.x"
+  const oasYamlPattern = /^openapi:\s*["']?3\./m;
+  const oasJsonPattern = /"openapi"\s*:\s*"3\./;
+
+  return oasYamlPattern.test(text) || oasJsonPattern.test(text);
 }
 
 /**
  * Parse an OpenAPI specification from text.
+ * Returns null if parsing fails or if it's not a valid OpenAPI spec.
  */
 export function parseOpenAPISpec(content: string): object | null {
   try {
+    let parsed: unknown;
     // Try JSON first
     if (content.trim().startsWith("{")) {
-      return JSON.parse(content);
+      parsed = JSON.parse(content);
+    } else {
+      // Then YAML
+      parsed = parseYaml(content);
     }
-    // Then YAML
-    return parseYaml(content) as object;
+
+    // Validate it's an object with openapi or swagger field
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      ("openapi" in parsed || "swagger" in parsed)
+    ) {
+      return parsed as object;
+    }
+
+    return null;
   } catch {
     return null;
   }
@@ -75,15 +94,15 @@ export function violationsToDiagnostics(
   for (const violation of violations) {
     const { key, value } = violation;
 
-    // Find the range for this violation
-    const range = findViolationRange(key, content, yamlDoc);
-
     // Create a diagnostic for each violation message
     for (const v of value) {
       // Skip info severity if not included
       if (!includeInfo && v.severity === "info") {
         continue;
       }
+
+      // Find the range for this specific violation (message helps locate schema properties)
+      const range = findViolationRange(key, content, yamlDoc, v.message);
 
       diagnostics.push({
         range,
@@ -120,7 +139,8 @@ function mapSeverity(severity?: Severity): DiagnosticSeverity {
 function findViolationRange(
   key: ViolationKV["key"],
   content: string,
-  _yamlDoc: YamlDocument | null
+  _yamlDoc: YamlDocument | null,
+  message?: string
 ): Range {
   const lines = content.split("\n");
 
@@ -136,10 +156,10 @@ function findViolationRange(
         return findOperationIdRange(key.operation_id, key.path, content, lines) || defaultRange;
 
       case "path":
-        return findPathRange(key.path, content, lines) || defaultRange;
+        return findPathRange(key.path, content, lines, message) || defaultRange;
 
       case "schema_path":
-        return findSchemaRange(key.schema_path, content, lines) || defaultRange;
+        return findSchemaRange(key.schema_path, content, lines, message) || defaultRange;
 
       case "http_code":
         return findHttpCodeRange(key.http_code, key.path, key.operation_id, content, lines) || defaultRange;
@@ -198,57 +218,95 @@ function findOperationIdRange(
 
 /**
  * Find range for a path definition.
+ * Only searches within the "paths:" section to avoid matching schema refs.
  */
 function findPathRange(
   path: string | undefined,
   content: string,
-  lines: string[]
+  lines: string[],
+  message?: string
 ): Range | null {
-  if (!path) return null;
+  // Find the paths section boundaries
+  const pathsMatch = content.match(/^paths:\s*$/m);
+  const jsonPathsMatch = content.match(/"paths"\s*:\s*\{/);
 
-  // First, try to find the exact path under the "paths:" section
-  const pathsIndex = content.indexOf("paths:");
-  const searchStart = pathsIndex !== -1 ? pathsIndex : 0;
-  const searchContent = content.slice(searchStart);
+  if (!pathsMatch && !jsonPathsMatch) return null;
 
-  // Search for path key with proper indentation (2 spaces for YAML)
-  const patterns = [
-    `\n  ${path}:`,      // YAML with 2-space indent
-    `\n    ${path}:`,    // YAML with 4-space indent
-    `${path}:`,          // Start of line or inline
-    `"${path}":`,        // JSON style
-    `'${path}':`,        // Single-quoted
-  ];
+  const pathsIndex = pathsMatch ? content.indexOf(pathsMatch[0]) : content.indexOf('"paths"');
+  if (pathsIndex === -1) return null;
 
-  for (const pattern of patterns) {
-    const relativeIndex = searchContent.indexOf(pattern);
-    if (relativeIndex !== -1) {
-      const absoluteIndex = searchStart + relativeIndex;
-      // Adjust for leading newline in pattern
-      const adjustedIndex = pattern.startsWith("\n") ? absoluteIndex + 1 : absoluteIndex;
-      const patternLength = pattern.startsWith("\n") ? pattern.length - 1 : pattern.length;
-      return indexToRange(adjustedIndex, patternLength, content, lines);
+  // Find the end of paths section (next top-level key like "components:" or end of file)
+  const afterPaths = content.slice(pathsIndex);
+  const nextSectionMatch = afterPaths.match(/\n[a-zA-Z][a-zA-Z0-9]*:/);
+  const pathsEndIndex = nextSectionMatch
+    ? pathsIndex + (nextSectionMatch.index || afterPaths.length)
+    : content.length;
+
+  // Only search within the paths section
+  const pathsSection = content.slice(pathsIndex, pathsEndIndex);
+  const pathsSectionStart = pathsIndex;
+
+  // If we have a path, search for it
+  if (path) {
+    // Search for path key with proper indentation
+    const patterns = [
+      `\n  ${path}:`,      // YAML with 2-space indent
+      `\n    ${path}:`,    // YAML with 4-space indent
+      `"${path}":`,        // JSON style
+      `'${path}':`,        // Single-quoted
+    ];
+
+    for (const pattern of patterns) {
+      const relativeIndex = pathsSection.indexOf(pattern);
+      if (relativeIndex !== -1) {
+        const absoluteIndex = pathsSectionStart + relativeIndex;
+        // Adjust for leading newline in pattern
+        const adjustedIndex = pattern.startsWith("\n") ? absoluteIndex + 1 : absoluteIndex;
+        const patternLength = pattern.startsWith("\n") ? pattern.length - 1 : pattern.length;
+        return indexToRange(adjustedIndex, patternLength, content, lines);
+      }
+    }
+
+    // If full path not found, try to find a path that contains underscores (for underscore violations)
+    if (message?.toLowerCase().includes("underscore")) {
+      // Find any path with underscores in the paths section
+      const underscorePathMatch = pathsSection.match(/\n\s+(\/[^:\s]*_[^:\s]*):/);
+      if (underscorePathMatch) {
+        const relativeIndex = pathsSection.indexOf(underscorePathMatch[0]);
+        const absoluteIndex = pathsSectionStart + relativeIndex + 1; // +1 for newline
+        return indexToRange(absoluteIndex, underscorePathMatch[1].length + 1, content, lines);
+      }
+    }
+
+    // Try to find the path that contains any segment
+    const segments = path.split("/").filter(Boolean);
+    for (const segment of segments) {
+      // Skip path parameters like {petId}
+      if (segment.startsWith("{")) continue;
+
+      // Look for paths containing this segment (must be within paths section)
+      const segmentPatterns = [
+        new RegExp(`\\n\\s+"?/${segment}[/":]`, "g"),  // JSON or YAML path containing segment
+        new RegExp(`\\n\\s+/${segment}[/":]`, "g"),     // YAML path containing segment
+      ];
+
+      for (const pattern of segmentPatterns) {
+        const match = pattern.exec(pathsSection);
+        if (match) {
+          const absoluteIndex = pathsSectionStart + match.index + 1; // +1 for newline
+          return indexToRange(absoluteIndex, match[0].length - 1, content, lines);
+        }
+      }
     }
   }
 
-  // If full path not found, try to find the problematic segment
-  // This handles cases like "/pets/{petId}" where we want to find "/pets"
-  const segments = path.split("/").filter(Boolean);
-  for (const segment of segments) {
-    // Skip path parameters like {petId}
-    if (segment.startsWith("{")) continue;
-
-    const segmentPatterns = [
-      `/${segment}`,
-      `/${segment}/`,
-      `/${segment}:`,
-    ];
-
-    for (const pattern of segmentPatterns) {
-      const index = content.indexOf(pattern);
-      if (index !== -1) {
-        return indexToRange(index, pattern.length, content, lines);
-      }
+  // Fallback: if message mentions underscore, find any path with underscores
+  if (message?.toLowerCase().includes("underscore")) {
+    const underscorePathMatch = pathsSection.match(/\n\s+(\/[^:\s]*_[^:\s]*):/);
+    if (underscorePathMatch) {
+      const relativeIndex = pathsSection.indexOf(underscorePathMatch[0]);
+      const absoluteIndex = pathsSectionStart + relativeIndex + 1;
+      return indexToRange(absoluteIndex, underscorePathMatch[1].length + 1, content, lines);
     }
   }
 
@@ -256,28 +314,70 @@ function findPathRange(
 }
 
 /**
- * Find range for a schema definition.
+ * Find range for a schema definition or property.
+ * Handles paths like:
+ * - #/components/schemas/Pet
+ * - Pet (schema name)
+ * Also extracts property names from violation messages.
  */
 function findSchemaRange(
   schemaPath: string | undefined,
   content: string,
-  lines: string[]
+  lines: string[],
+  message?: string
 ): Range | null {
   if (!schemaPath) return null;
 
-  // Schema path format: #/components/schemas/SchemaName or just SchemaName
-  const schemaName = schemaPath.split("/").pop() || schemaPath;
+  // Extract property name from message if present
+  // Messages like: "Schema property 'petStatus' contains..."
+  const propertyMatch = message?.match(/Schema property '([^']+)'/);
+  const propertyName = propertyMatch?.[1];
 
-  const patterns = [
+  // Get the schema name (last part of path, or the path itself)
+  const parts = schemaPath.replace(/^#\//, "").split("/");
+  const schemaName = parts[parts.length - 1] || schemaPath;
+
+  // Find the schema first
+  const schemaPatterns = [
     `${schemaName}:`,
     `"${schemaName}":`,
   ];
 
-  for (const pattern of patterns) {
-    const index = content.indexOf(pattern);
-    if (index !== -1) {
-      return indexToRange(index, pattern.length, content, lines);
+  let schemaStart = -1;
+  for (const pattern of schemaPatterns) {
+    schemaStart = content.indexOf(pattern);
+    if (schemaStart !== -1) break;
+  }
+
+  // If we have a property name and found the schema, search within the schema
+  if (propertyName && schemaStart !== -1) {
+    // Find the next schema (to limit search scope)
+    const afterSchema = content.slice(schemaStart);
+    const nextSchemaMatch = afterSchema.match(/\n  [A-Z][a-zA-Z0-9]*:/);
+    const schemaEnd = nextSchemaMatch
+      ? schemaStart + (nextSchemaMatch.index || afterSchema.length)
+      : content.length;
+
+    const schemaSection = content.slice(schemaStart, schemaEnd);
+
+    // Now find the property within this schema
+    const propPatterns = [
+      `${propertyName}:`,
+      `"${propertyName}":`,
+    ];
+
+    for (const pattern of propPatterns) {
+      const propIndex = schemaSection.indexOf(pattern);
+      if (propIndex !== -1) {
+        return indexToRange(schemaStart + propIndex, pattern.length, content, lines);
+      }
     }
+  }
+
+  // Fall back to schema name
+  if (schemaStart !== -1) {
+    const pattern = schemaPatterns.find(p => content.indexOf(p) === schemaStart)!;
+    return indexToRange(schemaStart, pattern.length, content, lines);
   }
 
   return null;

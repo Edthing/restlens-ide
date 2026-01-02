@@ -37,7 +37,8 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("restlens.signOut", () => signOut()),
     vscode.commands.registerCommand("restlens.selectProject", () => selectProject()),
     vscode.commands.registerCommand("restlens.evaluate", () => evaluate()),
-    vscode.commands.registerCommand("restlens.clearCache", () => clearCache())
+    vscode.commands.registerCommand("restlens.clearCache", () => clearCache()),
+    vscode.commands.registerCommand("restlens.showMenu", () => showMenu())
   );
 
   // Start language server
@@ -313,13 +314,76 @@ async function clearCache() {
   }
 }
 
+async function showMenu() {
+  const hasToken = await tokenManager.hasValidToken();
+  const config = await getConfigAsync();
+  const hasProject = !!(config.organization && config.project);
+
+  interface MenuItem extends vscode.QuickPickItem {
+    action: () => Promise<void> | void;
+  }
+
+  const items: MenuItem[] = [];
+
+  if (!hasToken) {
+    items.push({
+      label: "$(key) Sign In",
+      description: "Authenticate with REST Lens",
+      action: signIn,
+    });
+  } else {
+    if (hasProject) {
+      items.push({
+        label: "$(play) Evaluate Current File",
+        description: "Run evaluation on the active OpenAPI spec",
+        action: evaluate,
+      });
+      items.push({
+        label: "$(checklist) View Problems",
+        description: "Open the Problems panel",
+        action: () => vscode.commands.executeCommand("workbench.actions.view.problems"),
+      });
+    }
+    items.push({
+      label: "$(folder) Select Project",
+      description: hasProject ? `Current: ${config.organization}/${config.project}` : "Choose a REST Lens project",
+      action: selectProject,
+    });
+    items.push({
+      label: "$(trash) Clear Cache",
+      description: "Clear cached evaluation results",
+      action: clearCache,
+    });
+    items.push({
+      label: "$(sign-out) Sign Out",
+      description: "Sign out of REST Lens",
+      action: signOut,
+    });
+  }
+
+  const selected = await vscode.window.showQuickPick(items, {
+    placeHolder: "REST Lens Actions",
+  });
+
+  if (selected) {
+    await selected.action();
+  }
+}
+
 async function updateStatusBar() {
   const hasToken = await tokenManager.hasValidToken();
 
-  if (hasToken) {
-    statusBar.setAuthenticated();
-  } else {
+  if (!hasToken) {
     statusBar.setNotAuthenticated();
+    return;
+  }
+
+  // Check if project is configured
+  const config = await getConfigAsync();
+  if (!config.organization || !config.project) {
+    statusBar.setNeedsProjectSelection();
+  } else {
+    statusBar.setAuthenticated();
   }
 }
 

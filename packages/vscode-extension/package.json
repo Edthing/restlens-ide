@@ -7,7 +7,7 @@
   "license": "GPL-3.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/restlens/restlens-ide"
+    "url": "https://github.com/Edthing/restlens-ide"
   },
   "icon": "images/icon.png",
   "engines": {
@@ -26,12 +26,7 @@
     "validation"
   ],
   "activationEvents": [
-    "onLanguage:yaml",
-    "onLanguage:json",
-    "workspaceContains:**/openapi.yaml",
-    "workspaceContains:**/openapi.json",
-    "workspaceContains:**/swagger.yaml",
-    "workspaceContains:**/swagger.json"
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -102,20 +97,22 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "tsc && npm run copy-server",
-    "copy-server": "rm -rf ./dist/server && cp -r ../lsp-server/dist ./dist/server",
-    "watch": "tsc -w",
+    "build": "npm run build:extension && npm run build:server",
+    "build:extension": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "build:server": "esbuild ../lsp-server/src/server.ts --bundle --outfile=dist/server/server.js --format=cjs --platform=node",
+    "watch": "npm run build:extension -- --watch",
     "package": "vsce package",
     "clean": "rm -rf dist out"
   },
   "dependencies": {
-    "@restlens-ide/shared": "*",
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
+    "@restlens-ide/shared": "*",
     "@types/vscode": "^1.85.0",
     "@types/node": "^20.10.0",
     "typescript": "^5.3.3",
-    "@vscode/vsce": "^2.22.0"
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.20.0"
   }
 }

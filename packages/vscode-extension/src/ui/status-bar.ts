@@ -11,6 +11,7 @@ type MaxSeverity = "error" | "warning" | "info" | null;
 export class StatusBar {
   private item: vscode.StatusBarItem;
   private isAuthenticated = false;
+  private needsProjectSelection = false;
   private isEvaluating = false;
   private violationCount = 0;
   private maxSeverity: MaxSeverity = null;
@@ -41,8 +42,16 @@ export class StatusBar {
 
   setAuthenticated(): void {
     this.isAuthenticated = true;
+    this.needsProjectSelection = false;
     this.errorMessage = null;
     // Don't touch isEvaluating - it's managed separately
+    this.update();
+  }
+
+  setNeedsProjectSelection(): void {
+    this.isAuthenticated = true;
+    this.needsProjectSelection = true;
+    this.errorMessage = null;
     this.update();
   }
 
@@ -90,6 +99,14 @@ export class StatusBar {
       return;
     }
 
+    if (this.needsProjectSelection) {
+      this.item.text = "$(folder) REST Lens: Select Project";
+      this.item.tooltip = "Click to select a REST Lens project";
+      this.item.command = "restlens.selectProject";
+      this.item.backgroundColor = undefined;
+      return;
+    }
+
     if (this.isEvaluating) {
       this.item.text = "$(sync~spin) REST Lens: Evaluating...";
       this.item.tooltip = "Evaluation in progress - click to view problems";
@@ -102,8 +119,8 @@ export class StatusBar {
     if (this.violationCount > 0) {
       const icon = this.maxSeverity === "error" ? "error" : this.maxSeverity === "warning" ? "warning" : "info";
       this.item.text = `$(${icon}) REST Lens: ${this.violationCount} issues`;
-      this.item.tooltip = `${this.violationCount} API design issues found - click to view`;
-      this.item.command = "workbench.actions.view.problems";
+      this.item.tooltip = `${this.violationCount} API design issues found - click for options`;
+      this.item.command = "restlens.showMenu";
 
       // Color based on max severity
       if (this.maxSeverity === "error") {
@@ -115,8 +132,8 @@ export class StatusBar {
       }
     } else {
       this.item.text = "$(check) REST Lens: Ready";
-      this.item.tooltip = "No issues found - click to evaluate";
-      this.item.command = "restlens.evaluate";
+      this.item.tooltip = "Click for REST Lens options";
+      this.item.command = "restlens.showMenu";
       this.item.backgroundColor = undefined;
     }
   }
