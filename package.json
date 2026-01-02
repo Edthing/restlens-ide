@@ -1,6 +1,6 @@
 {
   "name": "restlens-ide",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "REST Lens IDE integration - VS Code extension for OpenAPI specification evaluation",
   "repository": {

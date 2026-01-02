@@ -2,7 +2,7 @@
   "name": "restlens-ide",
   "displayName": "REST Lens",
   "description": "Real-time OpenAPI specification evaluation powered by REST Lens",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "publisher": "restlens",
   "license": "GPL-3.0",
   "repository": {
