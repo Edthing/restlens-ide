@@ -279,8 +279,9 @@ async function selectProject() {
     await writeProjectConfig(selected.project.organizationSlug, selected.project.name);
     vscode.window.showInformationMessage(`Selected project: ${selected.project.organizationSlug}/${selected.project.name}`);
 
-    // Refresh config
+    // Refresh config and update status bar
     await updateServerConfig();
+    await updateStatusBar();
   }
 }
 

@@ -2,7 +2,7 @@
   "name": "restlens-client",
   "displayName": "REST Lens Client",
   "description": "Real-time OpenAPI specification evaluation powered by REST Lens",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "restlens",
   "license": "GPL-3.0",
   "repository": {
