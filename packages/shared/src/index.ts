@@ -1,8 +1,11 @@
 /**
  * REST Lens IDE - Shared Types
  *
- * Types for REST Lens API integration, matching the server-side SEORA types.
+ * Re-exports from @restlens/lib for backwards compatibility.
  */
 
-export * from "./api-types";
-export * from "./config";
+// Re-export all types from the shared library
+export * from "@restlens/lib";
+
+// Export IDE-specific config values that aren't in lib
+export { OAUTH_CLIENT_ID } from "./config.js";

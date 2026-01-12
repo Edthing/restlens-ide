@@ -14,11 +14,11 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@restlens/lib": "^0.1.0",
     "@restlens-ide/shared": "*",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.11",
     "vscode-uri": "^3.0.8",
-    "yaml": "^2.3.4",
     "lru-cache": "^10.1.0"
   },
   "devDependencies": {
